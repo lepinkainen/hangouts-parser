@@ -33,6 +33,7 @@ data = data['conversation_state']
 users = {}
 
 def get_names(data):
+    """Parse a list of names from a chat state"""
     members = []
     for person in data:
         name = users.get(person['id']['chat_id'], None)
@@ -48,6 +49,8 @@ def get_names(data):
     return members
 
 class Event(object):
+    """A Hangouts event"""
+
     def __init__(self, event, logtype="IRC"):
         self.logtype = logtype
         self.sender_id = event['sender_id']['chat_id']
@@ -100,7 +103,9 @@ class Event(object):
             return self.log_irc()
         else:
             return "Unknown log type %s" % self.logtype
+
     def log_irc(self):
+        """IRC-style logging"""
         out = "<%s> %s" % (users.get(self.sender_id, "UNDEF"), self._get_msg())
         return out.encode("UTF-8")
 
@@ -120,7 +125,7 @@ for conversations in data:
             print "Group Chat, %d participants: %s" % (len(convo['participant_data']), get_names(convo['participant_data']))
     else:
         print "UNKNOWN TYPE: %s" % convo_type
-
+        sys.exit(1)
 
     log = []
     for event in events:
@@ -132,9 +137,3 @@ for conversations in data:
 
     for line in log:
         print line
-
-#    sys.exit(1)
-
-
-
-
