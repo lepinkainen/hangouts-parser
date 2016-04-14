@@ -1,14 +1,19 @@
+#!/usr/bin/python3
 import json
 import sys
 import os
 
-print "Parsing data..."
-data = json.loads(file("Hangouts.json").read())
-print "Done"
+OUTDIR = os.path.join(sys.path[0], 'logs/')
+if not os.path.exists(OUTDIR):
+    os.mkdir(OUTDIR)
+
+print("Parsing data...")
+DATA = json.loads(open("Hangouts.json").read())
+print("Done")
 
 # [u'continuation_end_timestamp', u'conversation_state']
 
-data = data['conversation_state']
+DATA = DATA['conversation_state']
 
 # list of conversations
 
@@ -36,7 +41,7 @@ users = {}
 
 def resolve_user(gaia_id):
 
-    if users.has_key(gaia_id):
+    if gaia_id in users:
         return users[gaia_id]
 
     apikey = os.environ["GPLUS_APIKEY"]
@@ -121,7 +126,7 @@ class Event(object):
         self.timestamp = event['timestamp']
         self.eventtype = event['event_type']
         # TODO: HANGOUT_EVENT = rings etc
-        if event.has_key("chat_message"):
+        if "chat_message" in event:
             self.raw_msg = event['chat_message']
         else:
             self.raw_msg = ""
@@ -132,34 +137,34 @@ class Event(object):
 
         msg = self.raw_msg['message_content']
         output = []
-        if msg.has_key('segment'):
+        if "segment" in msg:
             for segment in msg['segment']:
                 if segment['type'] == "TEXT" or segment['type'] == "LINK":
                     output.append(segment['text'])
                 elif segment['type'] == "LINE_BREAK":
                     output.append("\n")
                 else:
-                    print msg
+                    print(msg)
                     sys.exit(1)
-        elif msg.has_key('attachment'):
+        elif "attachment" in msg:
             for attachment in msg['attachment']:
                 attachment_type = attachment['embed_item']['type']
                 # It's theoretically possible to have multiple attachment types
                 # Haven't seen one though
                 if len(attachment_type) > 1:
-                    print attachment
+                    print(attachment)
                     sys.exit(1)
                 if attachment_type[0] == "PLUS_PHOTO":
                     output.append("Attachment: %s" % attachment_type)
                 else:
-                    print attachment['embed_item']
-                    print attachment['embed_item'].keys()
+                    print(attachment['embed_item'])
+                    print(attachment['embed_item'].keys())
                     sys.exit(1)
         else:
-            print self.raw_msg
+            print(self.raw_msg)
             sys.exit(1)
 
-        return u"".join(output)
+        return "".join(output)
 
     def __str__(self):
         """Representation of a message"""
@@ -170,11 +175,11 @@ class Event(object):
 
     def log_irc(self):
         """IRC-style logging"""
-        out = "<%s> %s" % (self.chat.get_user(self.sender_id), self._get_msg())
-        return out.encode("UTF-8")
+        # TODO: Timestamp
+        return "<%s> %s" % (self.chat.get_user(self.sender_id), self._get_msg())
 
 # Loop conversations
-for conversations in data:
+for conversations in DATA:
     convo_id = conversations['conversation_id']['id']
     convo = conversations['conversation_state']['conversation']
     events = conversations['conversation_state']['event']
@@ -184,12 +189,13 @@ for conversations in data:
     for event in events:
         chat.add_event(Event(chat, event))
 
-    print "Saving log: " + chat.filename
-    
-    chatlog = file(chat.filename+".log", 'w')
+    print("Saving log: " + chat.filename)
+
+    chatlog = open(os.path.join(OUTDIR, chat.filename+".log"), 'w')
 
     for line in chat:
-        chatlog.write(str(line)+"\n")
+        #chatlog.write(str(line, 'utf-8')+"\n")
+        print(line)
 
     chatlog.close()
 
