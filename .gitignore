@@ -1,2 +1,8 @@
 # don't accidentally commit all of your chat history...
 Hangouts.json
+
+# virtualenv
+bin/
+include/
+lib/
+local/
