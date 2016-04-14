@@ -1,5 +1,6 @@
 import json
 import sys
+import os
 
 print "Parsing data..."
 data = json.loads(file("Hangouts.json").read())
@@ -32,26 +33,89 @@ data = data['conversation_state']
 
 users = {}
 
-def get_names(data):
-    """Parse a list of names from a chat state"""
-    members = []
-    for person in data:
-        name = users.get(person['id']['chat_id'], None)
-        if name:
-            members.append(name)
-            continue
-        else:
-            print "CACHE MISS"
-        if person.has_key('fallback_name'):
-            users[person['id']['chat_id']] = person['fallback_name']
-            members.append(person['fallback_name'])
 
-    return members
+def resolve_user(gaia_id):
+
+    if users.has_key(gaia_id):
+        return users[gaia_id]
+
+    apikey = os.environ["GPLUS_APIKEY"]
+    api_url = "https://www.googleapis.com/plus/v1/people/%s?key=%s"
+
+    if not apikey:
+        print("API key not found, define GPLUS_APIKEY environment variable")
+        sys.exit(1)
+
+    import requests
+
+    data = requests.get(api_url % (gaia_id, apikey))
+    json = data.json()
+
+    if data.status_code == 200:
+        # cache
+        users[gaia_id] = json['displayName']
+
+        return users[gaia_id]
+    elif data.status_code == 404:
+        return "USER NOT FOUND: %s" % gaia_id
+    else:
+        return "UNKNOWN: %s" % gaia_id
+
+class Chat(object):
+    """A single hangouts (group) chat"""
+
+    def __init__(self, conversation_id, participants=None, chat_type="Unknown", name=None):
+        self.conversation_id = conversation_id
+        self.events = []
+        self.name = name
+        self.users = []
+        self.participants = participants or []
+        for participant in self.participants:
+            self.users.append(User(participant))
+
+        if name != None:
+            self.type = "NAMED_GROUP"
+        else:
+            self.type = chat_type
+
+        if self.name:
+            self.filename = self.name
+        else:
+            self.filename = self.conversation_id
+
+    def get_user(self, user_id):
+        """Get user by id"""
+        for user in self.users:
+            if user.chat_id == user_id:
+                return user.name
+
+    def add_event(self, event):
+        self.events.append(event)
+
+    def __str__(self):
+        return "Chat: %d messages" % len(self.events)
+
+    def __iter__(self):
+        for event in self.events:
+            yield event
+
+
+class User(object):
+    """A hangouts user participating in this chat"""
+    def __init__(self, participant):
+        self.chat_id = participant['id'].get('chat_id')
+        self.gaia_id = participant['id'].get('gaia_id')
+        self.name = participant.get('fallback_name', resolve_user(self.gaia_id))
+
+    def __str__(self):
+        return "%s (%s)" % (self.name, self.chat_id)
+
 
 class Event(object):
     """A Hangouts event"""
 
-    def __init__(self, event, logtype="IRC"):
+    def __init__(self, chat, event, logtype="IRC"):
+        self.chat = chat
         self.logtype = logtype
         self.sender_id = event['sender_id']['chat_id']
         self.timestamp = event['timestamp']
@@ -106,34 +170,26 @@ class Event(object):
 
     def log_irc(self):
         """IRC-style logging"""
-        out = "<%s> %s" % (users.get(self.sender_id, "UNDEF"), self._get_msg())
+        out = "<%s> %s" % (self.chat.get_user(self.sender_id), self._get_msg())
         return out.encode("UTF-8")
 
 # Loop conversations
 for conversations in data:
+    convo_id = conversations['conversation_id']['id']
     convo = conversations['conversation_state']['conversation']
     events = conversations['conversation_state']['event']
 
-    convo_type = convo['type']
+    chat = Chat(convo_id, chat_type=convo['type'], participants=convo['participant_data'], name=convo.get('name', None))
 
-    if convo_type == "STICKY_ONE_TO_ONE":
-        print "One on one chat: %s" % get_names(convo['participant_data'])
-    elif convo_type == "GROUP":
-        if convo.has_key('name'):
-            print "Named Group Chat %s, %d participants: %s" % (convo['name'], len(convo['participant_data']), get_names(convo['participant_data']))
-        else:
-            print "Group Chat, %d participants: %s" % (len(convo['participant_data']), get_names(convo['participant_data']))
-    else:
-        print "UNKNOWN TYPE: %s" % convo_type
-        sys.exit(1)
-
-    log = []
     for event in events:
-        log.append(Event(event))
-        # print users.get(event['sender_id']['chat_id'], "Unknown user")
-        # print event['timestamp']
-        # print event['event_type']
-        # print event['chat_message']
+        chat.add_event(Event(chat, event))
 
-    for line in log:
-        print line
+    print "Saving log: " + chat.filename
+    
+    chatlog = file(chat.filename+".log", 'w')
+
+    for line in chat:
+        chatlog.write(str(line)+"\n")
+
+    chatlog.close()
+
